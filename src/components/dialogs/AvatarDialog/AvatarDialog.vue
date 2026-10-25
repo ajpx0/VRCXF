@@ -960,8 +960,7 @@
 
     function isListingOwned(listing) {
         return (
-            ownedListingIds.value.has(listing.listingId) ||
-            ownedProductIds.value.has(avatarDialog.value.ref.productId)
+            ownedListingIds.value.has(listing.listingId) || ownedProductIds.value.has(avatarDialog.value.ref.productId)
         );
     }
 
