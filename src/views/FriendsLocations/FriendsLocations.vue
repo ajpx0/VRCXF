@@ -127,6 +127,7 @@
                                         :locationobject="getRowLocationObject(row)"
                                         :currentuserid="userStore.currentUser.id" />
                                     <InstanceActionBar
+                                        :key="getRowInstance(row)?.$fetchedAt"
                                         class="text-sm border-muted-foreground/30"
                                         :show-buttons="false"
                                         :location="getRowInstanceId(row)"
