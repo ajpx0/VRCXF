@@ -29,7 +29,7 @@
                                 v-for="entry in item.children"
                                 :key="entry.index"
                                 @select="(event) => emit('collapsed-submenu-select', event, entry)"
-                                @mouseup.middle.prevent.stop="emit('middle-click', entry)">
+                                @mousedown.middle.prevent.stop="emit('middle-click', entry)">
                                 <i
                                     v-if="entry.icon"
                                     :class="entry.icon"
@@ -80,7 +80,7 @@
                                                 <SidebarMenuSubButton
                                                     :is-active="activeMenuIndex === entry.index"
                                                     @click="emit('submenu-click', entry)"
-                                                    @mouseup.middle.prevent.stop="emit('middle-click', entry)">
+                                                    @mousedown.middle.prevent.stop="emit('middle-click', entry)">
                                                     <i
                                                         v-if="entry.icon"
                                                         :class="entry.icon"
