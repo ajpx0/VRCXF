@@ -45,6 +45,10 @@
         focusKey: {
             type: [Number, String],
             default: 0
+        },
+        windowName: {
+            type: String,
+            default: ''
         }
     });
 
@@ -133,14 +137,14 @@
         };
     };
 
-    const windowName = `vrcx-popout-${Math.random().toString(36).slice(2, 10)}`;
+    const popoutWindowName = props.windowName || `vrcx-popout-${Math.random().toString(36).slice(2, 6)}`;
 
     const focusNewWindow = () => {
         if (!newWindow || newWindow.closed) {
             return;
         }
         if (WINDOWS) {
-            AppApi.FocusPopupWindow(windowName);
+            AppApi.FocusPopupWindow(popoutWindowName);
         }
         newWindow.electron?.focusSelfWindow?.();
         newWindow.focus();
@@ -168,7 +172,7 @@
 
     const createNewWindow = () => {
         if (newWindow && !newWindow.closed && target.value?.isConnected) {
-            focusNewWindow();
+            scheduleFocusNewWindow(newWindow);
             return;
         }
 
@@ -181,7 +185,7 @@
 
         const openedWindow = openerWindow.open(
             'about:blank',
-            windowName,
+            popoutWindowName,
             `width=${props.width},height=${props.height},top=${top},left=${left}`
         );
 

@@ -66,12 +66,7 @@ namespace VRCX
                 return;
             }
 
-            if (WinformThemer.PInvoke.IsIconic(handle))
-            {
-                WinformThemer.PInvoke.ShowWindow(handle, WinformThemer.PInvoke.SW_RESTORE);
-            }
-
-            WinformThemer.PInvoke.SetForegroundWindow(handle);
+            WinformThemer.TrySetForegroundWindow(handle);
 
             if (browser == null || browser.IsDisposed)
             {

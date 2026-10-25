@@ -28,6 +28,7 @@
     import { Button } from '@/components/ui/button';
     import { TooltipWrapper } from '@/components/ui/tooltip';
     import WindowTeleport from '@/components/ui/window-teleport/WindowTeleport.vue';
+    import { MAIN_DIALOG_POPOUT_WINDOW_NAME } from '@/shared/constants/popout';
     import { computed, ref } from 'vue';
     import { storeToRefs } from 'pinia';
 
@@ -253,6 +254,7 @@
     <WindowTeleport
         :open="isOpen"
         :disabled="!popoutEnabled"
+        :window-name="MAIN_DIALOG_POPOUT_WINDOW_NAME"
         :focus-key="uiStore.dialogFocusRequest"
         :title="windowTitle"
         @close="uiStore.closeMainDialog">
