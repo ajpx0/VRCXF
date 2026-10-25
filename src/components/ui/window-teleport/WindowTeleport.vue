@@ -334,7 +334,10 @@
         }
     );
 
+    window.addEventListener('pagehide', closeNewWindow);
+
     onBeforeUnmount(() => {
+        window.removeEventListener('pagehide', closeNewWindow);
         closeNewWindow();
     });
 </script>
