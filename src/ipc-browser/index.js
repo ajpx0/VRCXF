@@ -1043,6 +1043,9 @@ const BrowserAppApi = new Proxy(
         async OpenLink(url) {
             window.open(url, '_blank', 'noopener');
         },
+        async OpenSteamStorePage(appId) {
+            window.open(`https://store.steampowered.com/app/${appId}/`, '_blank', 'noopener');
+        },
         async OpenDiscordProfile(discordId) {
             window.open(`https://discord.com/users/${discordId}`, '_blank', 'noopener');
         },
