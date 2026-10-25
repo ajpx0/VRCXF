@@ -314,7 +314,7 @@ export const useAppearanceSettingsStore = defineStore(
             accessibleStatusIndicators.value = accessibleStatusIndicatorsConfig;
             showNewDashboardButton.value = showNewDashboardButtonConfig;
             feedEnabled.value = feedEnabledConfig;
-            popoutEnabled.value = !BROWSER && popoutEnabledConfig;
+            popoutEnabled.value = popoutEnabledConfig;
 
             applyAccessibleStatusClass();
 
