@@ -1,6 +1,12 @@
 <script setup>
     import { inject, ref } from 'vue';
-    import { AlertDialogContent, AlertDialogOverlay, AlertDialogPortal, useForwardProps } from 'reka-ui';
+    import {
+        AlertDialogContent,
+        AlertDialogOverlay,
+        AlertDialogPortal,
+        injectDialogRootContext,
+        useForwardProps
+    } from 'reka-ui';
     import { useGuardedOutsideEmit, useModalPortalLayer, usePortalDocument } from '@/composables/usePortalDocument';
     import { cn } from '@/lib/utils';
     import { reactiveOmit } from '@vueuse/core';
@@ -37,6 +43,7 @@
     const portalDoc = usePortalDocument(open);
     const emitOutside = useGuardedOutsideEmit(portalDoc, emits);
     const portalTo = useModalPortalLayer(open, portalDoc);
+    const rootContext = injectDialogRootContext();
 </script>
 
 <template>
@@ -44,6 +51,11 @@
         <AlertDialogOverlay
             data-slot="alert-dialog-overlay"
             class="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-11000 bg-black/80" />
+        <div
+            v-if="!rootContext.modal.value && open"
+            data-slot="alert-dialog-overlay"
+            data-state="open"
+            class="data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-11000 bg-black/80" />
         <AlertDialogContent
             data-slot="alert-dialog-content"
             v-bind="{ ...$attrs, ...forwarded }"
