@@ -187,7 +187,8 @@
                                     :class="
                                         discordPresenceState.isDiscordConnected
                                             ? 'bg-status-online'
-                                            : discordPresenceSettingsStore.discordPresenceEnabled
+                                            : discordPresenceSettingsStore.discordActive &&
+                                                discordPresenceSettingsStore.discordPresenceEnabled
                                               ? 'bg-status-askme'
                                               : 'bg-status-offline-alt'
                                     " />
