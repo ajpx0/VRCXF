@@ -142,24 +142,7 @@ export const useUpdateLoopStore = defineStore('UpdateLoop', () => {
             friendStore.setIsRefreshFriendsLoading(false);
             console.error(err);
         }
-        scheduleNextUpdateLoop();
-    }
-
-    function scheduleNextUpdateLoop() {
-        let fired = false;
-        const run = () => {
-            if (fired) {
-                return;
-            }
-            fired = true;
-            updateLoop();
-        };
-        try {
-            workerTimers.setTimeout(run, 1000);
-        } catch (err) {
-            console.error(err);
-        }
-        setTimeout(run, 1500);
+        workerTimers.setTimeout(() => updateLoop(), 1000);
     }
 
     /**
