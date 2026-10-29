@@ -45,6 +45,10 @@
         focusKey: {
             type: [Number, String],
             default: 0
+        },
+        windowName: {
+            type: String,
+            default: ''
         }
     });
 
@@ -133,14 +137,14 @@
         };
     };
 
-    const windowName = `vrcx-popout-${Math.random().toString(36).slice(2, 10)}`;
+    const popoutWindowName = props.windowName || `vrcx-popout-${Math.random().toString(36).slice(2, 6)}`;
 
     const focusNewWindow = () => {
         if (!newWindow || newWindow.closed) {
             return;
         }
         if (WINDOWS) {
-            AppApi.FocusPopupWindow(windowName);
+            AppApi.FocusPopupWindow(popoutWindowName);
         }
         newWindow.electron?.focusSelfWindow?.();
         newWindow.focus();
@@ -168,7 +172,7 @@
 
     const createNewWindow = () => {
         if (newWindow && !newWindow.closed && target.value?.isConnected) {
-            focusNewWindow();
+            scheduleFocusNewWindow(newWindow);
             return;
         }
 
@@ -181,7 +185,7 @@
 
         const openedWindow = openerWindow.open(
             'about:blank',
-            windowName,
+            popoutWindowName,
             `width=${props.width},height=${props.height},top=${top},left=${left}`
         );
 
@@ -203,18 +207,37 @@
         newWindow.document.body.style.backgroundColor = bodyStyle.backgroundColor;
         newWindow.document.body.style.color = bodyStyle.color;
 
+        const clonedStyles = new Map();
         const syncStyles = () => {
             if (!newWindow || newWindow.closed) {
                 return;
             }
             const head = newWindow.document.head;
-            const stale = Array.from(head.querySelectorAll('[data-vrcx-cloned-style]'));
-            document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
-                const clone = node.cloneNode(true);
+            const sources = new Set(document.querySelectorAll('style, link[rel="stylesheet"]'));
+            for (const [source, clone] of clonedStyles) {
+                if (!sources.has(source)) {
+                    clone.remove();
+                    clonedStyles.delete(source);
+                }
+            }
+            sources.forEach((source) => {
+                const existing = clonedStyles.get(source);
+                if (
+                    existing &&
+                    existing.getAttribute('href') === source.getAttribute('href') &&
+                    existing.textContent === source.textContent
+                ) {
+                    return;
+                }
+                const clone = source.cloneNode(true);
                 clone.setAttribute('data-vrcx-cloned-style', '');
-                head.appendChild(clone);
+                if (existing) {
+                    existing.replaceWith(clone);
+                } else {
+                    head.appendChild(clone);
+                }
+                clonedStyles.set(source, clone);
             });
-            stale.forEach((node) => node.remove());
         };
         syncStyles();
 
@@ -311,7 +334,10 @@
         }
     );
 
+    window.addEventListener('pagehide', closeNewWindow);
+
     onBeforeUnmount(() => {
+        window.removeEventListener('pagehide', closeNewWindow);
         closeNewWindow();
     });
 </script>

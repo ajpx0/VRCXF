@@ -22,6 +22,17 @@
                     v-model="searchTerm"
                     class="friend-view__search"
                     :placeholder="t('view.friends_locations.search_placeholder')" />
+                <TooltipWrapper content="インスタンス情報を更新" side="top">
+                    <Button
+                        class="rounded-full"
+                        size="icon"
+                        variant="ghost"
+                        ariaLabel="インスタンス情報を更新"
+                        :disabled="refreshingInstances"
+                        @click="refreshInstances">
+                        <RefreshCw :class="{ 'animate-spin': refreshingInstances }" />
+                    </Button>
+                </TooltipWrapper>
                 <TooltipWrapper :content="t('view.charts.instance_activity.settings.header')" side="top">
                     <div>
                         <Popover>
@@ -98,7 +109,7 @@
         <div v-else class="friend-view__toolbar friend-view__toolbar--loading">
             <span class="friend-view__loading-text">{{ t('view.friends_locations.loading_more') }}</span>
         </div>
-        <div v-if="settingsReady" ref="scrollbarRef" class="friend-view__scroll">
+        <div v-if="settingsReady && watchState.isFriendsLoaded" ref="scrollbarRef" class="friend-view__scroll">
             <div v-if="virtualRows.length" class="friend-view__virtual" :style="virtualListStyle">
                 <template v-for="row in virtualRows" :key="String(row.key)">
                     <div class="friend-view__virtual-row" :class="`friend-view__virtual-row--${row.type}`">
@@ -116,6 +127,7 @@
                                         :locationobject="getRowLocationObject(row)"
                                         :currentuserid="userStore.currentUser.id" />
                                     <InstanceActionBar
+                                        :key="getRowInstance(row)?.$fetchedAt"
                                         class="text-sm border-muted-foreground/30"
                                         :show-buttons="false"
                                         :location="getRowInstanceId(row)"
@@ -170,7 +182,7 @@
 <script setup>
     import { useResizeObserver } from '@vueuse/core';
     import { computed, nextTick, onBeforeMount, onMounted, reactive, ref, watch } from 'vue';
-    import { ChevronDown, Loader2, Settings } from 'lucide-vue-next';
+    import { ChevronDown, Loader2, RefreshCw, Settings } from 'lucide-vue-next';
     import { Field, FieldContent, FieldLabel } from '@/components/ui/field';
     import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
     import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -191,6 +203,7 @@
         useWorldStore
     } from '../../stores';
     import { showWorldDialog } from '../../coordinators/worldCoordinator';
+    import { refreshInstancePlayerCount } from '../../coordinators/instanceCoordinator';
     import { Slider } from '../../components/ui/slider';
     import { Switch } from '../../components/ui/switch';
     import { getFriendsLocations } from '../../shared/utils/location.js';
@@ -200,6 +213,7 @@
     import LocationWorld from '@/components/LocationWorld.vue';
     import FriendLocationCard from './components/FriendsLocationsCard.vue';
     import configRepository from '../../services/config.js';
+    import { watchState } from '../../services/watchState';
     import { userRequest } from '../../api';
 
     const { t } = useI18n();
@@ -916,6 +930,28 @@
     });
 
     const getRowItems = (row) => (row && Array.isArray(row.items) ? row.items : []);
+
+    const refreshingInstances = ref(false);
+    const refreshInstances = async () => {
+        const locations = new Set();
+        for (const row of virtualRows.value) {
+            if (row.type === 'header') {
+                locations.add(row.instanceId);
+            }
+            for (const card of getRowItems(row)) {
+                const location = card.friend?.ref?.location;
+                if (location) {
+                    locations.add(location);
+                }
+            }
+        }
+        refreshingInstances.value = true;
+        try {
+            await Promise.allSettled([...locations].map(refreshInstancePlayerCount));
+        } finally {
+            refreshingInstances.value = false;
+        }
+    };
     const getRowInstanceId = (row) => (row && row.type === 'header' ? row.instanceId : '');
     const getRowCount = (row) => (row && row.type === 'header' ? row.count : 0);
     const locationObjectCache = new Map();

@@ -30,7 +30,7 @@
                                                     :is-active="activeMenuIndex === item.index"
                                                     :tooltip="getItemTooltip(item)"
                                                     @click="handleMenuItemClick(item)"
-                                                    @mouseup.middle.prevent.stop="handleMiddleClick(item)">
+                                                    @mousedown.middle.prevent.stop="handleMiddleClick(item)">
                                                     <i
                                                         :class="item.icon"
                                                         class="inline-flex size-6 items-center justify-center text-lg relative">

@@ -52,28 +52,33 @@ export function usePortalDocument(open = null) {
 
 export function useModalPortalLayer(open, portalDocument) {
     const portalLayer = ref(null);
+    let releaseTimer = null;
+
+    const releaseLayer = () => {
+        clearTimeout(releaseTimer);
+        releaseTimer = null;
+        portalLayer.value?.release();
+        portalLayer.value = null;
+    };
 
     watch(
         [open, portalDocument],
         ([isOpen, doc], oldValues) => {
             const oldDoc = oldValues?.[1];
             if (isOpen) {
-                if (portalLayer.value && oldDoc !== doc) {
-                    portalLayer.value.release();
-                    portalLayer.value = null;
+                if (releaseTimer || (portalLayer.value && oldDoc !== doc)) {
+                    releaseLayer();
                 }
                 portalLayer.value ??= acquireModalPortalLayer(doc);
-            } else {
-                portalLayer.value?.release();
-                portalLayer.value = null;
+            } else if (portalLayer.value) {
+                clearTimeout(releaseTimer);
+                releaseTimer = setTimeout(releaseLayer, 500);
             }
         },
         { immediate: true }
     );
 
-    onBeforeUnmount(() => {
-        portalLayer.value?.release();
-    });
+    onBeforeUnmount(releaseLayer);
 
     return computed(() => portalLayer.value?.element);
 }

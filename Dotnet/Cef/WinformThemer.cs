@@ -212,6 +212,39 @@ namespace VRCX
             return PInvoke.FlashWindowEx(ref fi);
         }
 
+        public static void TrySetForegroundWindow(IntPtr handle)
+        {
+            if (handle == IntPtr.Zero || !PInvoke.IsWindow(handle))
+            {
+                return;
+            }
+
+            if (PInvoke.IsIconic(handle))
+            {
+                PInvoke.ShowWindow(handle, PInvoke.SW_RESTORE);
+            }
+
+            IntPtr foreground = PInvoke.GetForegroundWindow();
+            if (foreground == handle)
+            {
+                return;
+            }
+
+            uint foregroundThread = PInvoke.GetWindowThreadProcessId(foreground, IntPtr.Zero);
+            uint currentThread = PInvoke.GetCurrentThreadId();
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+            {
+                PInvoke.AttachThreadInput(currentThread, foregroundThread, true);
+            }
+
+            PInvoke.SetForegroundWindow(handle);
+
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+            {
+                PInvoke.AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+
         internal static class PInvoke
         {
             [DllImport("DwmApi")]
@@ -247,6 +280,19 @@ namespace VRCX
             [DllImport("user32.dll")]
             [return: MarshalAs(UnmanagedType.Bool)]
             internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr GetForegroundWindow();
+
+            [DllImport("user32.dll")]
+            internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
+
+            [DllImport("kernel32.dll")]
+            internal static extern uint GetCurrentThreadId();
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool AttachThreadInput(uint attachThreadId, uint attachToThreadId, bool attach);
 
             [DllImport("user32.dll")]
             internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter, int x, int y, int width, int height, uint flags);

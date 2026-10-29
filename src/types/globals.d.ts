@@ -37,6 +37,7 @@ declare global {
         };
         electron: {
             getArch: () => Promise<string>;
+            getName: () => Promise<string>;
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;
             setTrayIconNotification: (notify: boolean) => Promise<void>;
@@ -181,6 +182,7 @@ declare global {
         GetColourFromUserID(userId: string): Promise<number>;
         OpenLink(url: string): Promise<void>;
         OpenDiscordProfile(discordId: string): Promise<void>;
+        OpenSteamStorePage(appId: number): Promise<void>;
         GetLaunchCommand(): Promise<string>;
         IPCAnnounceStart(): Promise<void>;
         SendIpc(type: string, data: string): Promise<void>;
@@ -227,8 +229,10 @@ declare global {
         GoogleDriveCancelSignIn(): Promise<void>;
         GoogleDriveExchangeToken(formJson: string): Promise<string>;
         GoogleDriveRevokeToken(refreshToken: string): Promise<void>;
+        GoogleDriveCompressDatabase(): Promise<void>;
         GoogleDriveUploadDatabase(accessToken: string): Promise<string>;
-        GoogleDriveDownloadDatabase(fileId: string, accessToken: string): Promise<boolean>;
+        GoogleDriveDownloadDatabase(fileId: string, accessToken: string): Promise<void>;
+        GoogleDriveImportDatabase(): Promise<boolean>;
 
         // Game Handler
         OnProcessStateChanged(monitoredProcess: any): Promise<void>;

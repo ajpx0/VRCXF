@@ -244,7 +244,6 @@
             </SettingsItem>
 
             <SettingsItem
-                v-if="!BROWSER"
                 label="ポップアウト機能を使用する"
                 description="ナビゲーションのポップアウトボタンと、メニュー項目の中クリックでビューを別ウィンドウに切り離せるようにします。">
                 <Switch

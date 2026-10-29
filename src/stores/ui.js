@@ -25,6 +25,8 @@ import { useNotificationStore } from './notification';
 import { useSearchStore } from './search';
 import { useUserStore } from './user';
 import { useWorldStore } from './world';
+import { getFocusedWindow } from '../lib/activeWindowTracker';
+import { MAIN_DIALOG_POPOUT_WINDOW_NAME } from '../shared/constants/popout';
 
 export const useUiStore = defineStore('Ui', () => {
     const notificationStore = useNotificationStore();
@@ -83,6 +85,18 @@ export const useUiStore = defineStore('Ui', () => {
             toast.success('Custom CSS and localization strings refreshed');
         }
     });
+
+    function focusMainDialogPopoutFromActiveWindow() {
+        if (!appearanceSettings.popoutEnabled) {
+            return;
+        }
+        const activeWin = getFocusedWindow();
+        if (!activeWin) {
+            return;
+        }
+        const popup = activeWin.open('', MAIN_DIALOG_POPOUT_WINDOW_NAME);
+        popup?.focus();
+    }
 
     function pushDialogCrumb(data) {
         const { type, id, label } = data;
@@ -221,7 +235,6 @@ export const useUiStore = defineStore('Ui', () => {
      * @returns {boolean}
      */
     function openDialog(data) {
-        dialogFocusRequest.value += 1;
         const { type } = data;
         const userStore = useUserStore();
         const worldStore = useWorldStore();
@@ -240,6 +253,11 @@ export const useUiStore = defineStore('Ui', () => {
             groupStore.groupRolesDialog.visible ||
             (instanceStore.previousInstancesInfoDialog.visible && !isPrevInfo) ||
             (instanceStore.previousInstancesListDialog.visible && !isPrevList);
+
+        dialogFocusRequest.value += 1;
+        if (hadActiveDialog) {
+            focusMainDialogPopoutFromActiveWindow();
+        }
 
         if (type !== 'user') {
             userStore.setUserDialogVisible(false);
