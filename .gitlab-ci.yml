@@ -1,0 +1,364 @@
+stages:
+  - prepare
+  - build
+  - release
+  - release-extra
+  - deploy
+
+variables:
+  CI_TASK:
+    value: ""
+    options: ["", "release-commit", "ci", "approve", "stale"]
+    description: 手動/スケジュール実行するタスク
+  RELEASE_SOURCE_BRANCH:
+    value: develop
+    description: release-commit のマージ元ブランチ
+
+.win:
+  tags: [saas-windows-medium-amd64]
+  variables:
+    NUGET_PACKAGES: $CI_PROJECT_DIR\.nuget\packages
+  cache:
+    key: windows-deps
+    paths:
+      - .nuget/packages/
+      - .pnpm-store/
+  before_script:
+    - $ProgressPreference = 'SilentlyContinue'
+    - $v = (Invoke-RestMethod https://nodejs.org/dist/index.json | Where-Object { $_.lts } | Select-Object -First 1).version
+    - Invoke-WebRequest "https://nodejs.org/dist/$v/node-$v-win-x64.zip" -OutFile node.zip
+    - Expand-Archive node.zip -DestinationPath C:\node
+    - Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+    - .\dotnet-install.ps1 -Channel 10.0 -InstallDir C:\dotnet
+    - $env:Path = "C:\node\node-$v-win-x64;C:\dotnet;$env:Path"
+    - $env:DOTNET_ROOT = "C:\dotnet"
+    - npm i -g pnpm@11
+    - pnpm config set store-dir .pnpm-store
+
+.linux:
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  variables:
+    NUGET_PACKAGES: $CI_PROJECT_DIR/.nuget/packages
+    ELECTRON_CACHE: $CI_PROJECT_DIR/.cache/electron
+    ELECTRON_BUILDER_CACHE: $CI_PROJECT_DIR/.cache/electron-builder
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+      prefix: linux-deps
+    paths:
+      - .nuget/packages/
+      - .cache/
+      - .pnpm-store/
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends p7zip-full curl ca-certificates
+    - curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+    - apt-get install -y nodejs
+    - npm i -g pnpm@11
+    - pnpm config set store-dir .pnpm-store
+
+.upload-sh: &upload-sh
+  - |
+    for f in $UPLOAD_FILES; do
+      n=$(basename "$f")
+      u="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/release/$RELEASE_TAG/$n"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "$u"
+      printf '%s\t%s\n' "$n" "$u" >> "release-assets-$CI_JOB_NAME.txt"
+    done
+
+build-dotnet:
+  extends: .win
+  stage: build
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_COMMIT_BRANCH != "docs"
+  script:
+    - dotnet build Dotnet/VRCX-Cef.csproj -c Release -p:Platform=x64
+
+build-node:
+  stage: build
+  image: node:lts
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_COMMIT_BRANCH != "docs"
+  script:
+    - npm i -g pnpm@11
+    - pnpm i --frozen-lockfile --prefer-offline
+    - pnpm prod
+
+ci-lint-js:
+  stage: build
+  image: node:lts
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_TASK == "ci"
+  script:
+    - npx -y oxlint --config oxlint.config.mts
+
+ci-format-js:
+  stage: build
+  image: node:lts
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_TASK == "ci"
+  script:
+    - npm ci
+    - npm run format:check
+
+ci-format-csharp:
+  stage: build
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_TASK == "ci"
+  script:
+    - dotnet format whitespace --no-restore --verify-no-changes
+    - dotnet format style --no-restore --verify-no-changes
+
+ci-build-dotnet-windows:
+  extends: .win
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_TASK == "ci"
+  script:
+    - Set-Content -LiteralPath Version -Value '1900.0.0'
+    - dotnet build Dotnet/VRCX-Cef.csproj -p:Configuration=Release -p:WarningLevel=0 -p:Platform=x64 -t:"Clean;Build" -maxcpucount --runtime win-x64 --self-contained
+
+release-prepare:
+  stage: prepare
+  image: alpine:3.20
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+  script:
+    - apk add --no-cache tzdata
+    - export TZ=Asia/Tokyo
+    - echo "RELEASE_TAG=$(date '+%Y.%m.%d')-$CI_COMMIT_SHORT_SHA" >> release.env
+    - echo "RELEASE_DATE=$(date '+%Y.%m.%d')" >> release.env
+    - cat release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+
+release-windows:
+  extends: .win
+  stage: build
+  needs: [release-prepare]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+  script:
+    - Set-Content -LiteralPath Version -Value $env:RELEASE_TAG
+    - |
+      $defines = @(
+          "!define PRODUCT_VERSION_FROM_FILE `"$env:RELEASE_DATE.0`""
+          "!define PRODUCT_DISPLAY_VERSION `"$env:RELEASE_TAG`""
+      )
+      Set-Content -LiteralPath Installer/version_define.nsh -Value $defines
+    - pnpm i --frozen-lockfile --prefer-offline
+    - pnpm prod
+    - dotnet build Dotnet/VRCX-Cef.csproj -c Release -p:Platform=x64
+    - Remove-Item -LiteralPath build/Cef/html -Force -Recurse -ErrorAction SilentlyContinue
+    - Copy-Item -LiteralPath build/html -Destination build/Cef/html -Recurse
+    - |
+      $manifestPath = 'build-scripts/msix/AppxManifest.xml'
+      $manifest = Get-Content -LiteralPath $manifestPath -Raw
+      $msixVersion = ([Version]"$env:RELEASE_DATE.0").ToString()
+      $manifest = $manifest.Replace('Version="0.0.0.0"', "Version=`"$msixVersion`"")
+      Set-Content -LiteralPath $manifestPath -Value $manifest -NoNewline
+    - npx -y @microsoft/winappcli pack build/Cef --manifest build-scripts/msix/AppxManifest.xml --output "VRCXF_$env:RELEASE_TAG.msix" --skip-pri
+    - choco install nsis -y --no-progress
+    - $env:Path += ";C:\Program Files (x86)\NSIS"
+    - makensis /X"!addplugindir /x86-unicode $env:CI_PROJECT_DIR\Installer\Plugins\x86-unicode" Installer/installer.nsi
+    - Move-Item -LiteralPath Installer/VRCX_Setup_x64.exe -Destination VRCXF_Setup_x64.exe
+    - |
+      foreach ($f in @(Get-Item "VRCXF_$env:RELEASE_TAG.msix", VRCXF_Setup_x64.exe)) {
+        $u = "$env:CI_API_V4_URL/projects/$env:CI_PROJECT_ID/packages/generic/release/$env:RELEASE_TAG/$($f.Name)"
+        Invoke-RestMethod -Method Put -Uri $u -Headers @{ 'JOB-TOKEN' = $env:CI_JOB_TOKEN } -InFile $f.FullName
+        "$($f.Name)`t$u" | Add-Content "release-assets-$env:CI_JOB_NAME.txt"
+      }
+  artifacts:
+    paths:
+      - release-assets-*.txt
+
+release-linux:
+  extends: .linux
+  stage: build
+  needs: [release-prepare]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+  variables:
+    UPLOAD_FILES: VRCXF_x64.AppImage VRCXF_arm64.AppImage
+  script:
+    - echo "$RELEASE_TAG" > Version
+    - pnpm i --frozen-lockfile --prefer-offline
+    - dotnet build Dotnet/VRCX-Electron.csproj -c Release -p:Platform=x64
+    - pnpm prod
+    - pnpm build-electron
+    - mv build/VRCX_*_x64.AppImage VRCXF_x64.AppImage
+    - rm -rf build/Electron
+    - dotnet build Dotnet/VRCX-Electron.csproj -c Release -p:Platform=ARM64
+    - pnpm build-electron-arm64
+    - mv build/VRCX_*_arm64.AppImage VRCXF_arm64.AppImage
+    - rm -rf build/Electron
+    - *upload-sh
+  artifacts:
+    paths:
+      - release-assets-*.txt
+
+release-bundle:
+  stage: build
+  image: node:lts
+  needs: [release-prepare]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+  variables:
+    UPLOAD_FILES: VRCXF_bundle.zip
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends p7zip-full
+    - npm i -g pnpm@11
+    - echo "$RELEASE_TAG" > Version
+    - pnpm i --frozen-lockfile --prefer-offline
+    - pnpm prod
+    - (cd build/html && 7z a -tzip ../../VRCXF_bundle.zip * -mx=7 -xr0!*.log)
+    - *upload-sh
+  artifacts:
+    paths:
+      - release-assets-*.txt
+
+release-publish:
+  stage: release
+  image: alpine:3.20
+  needs: [release-prepare, release-windows, release-linux, release-bundle]
+  interruptible: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+  script:
+    - apk add --no-cache curl jq
+    - |
+      links=$(cat release-assets-*.txt | tr -d '\r' | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name: .[0], url: .[1], link_type: "package"})')
+    - |
+      jq -n --arg tag "$RELEASE_TAG" --arg ref "$CI_COMMIT_SHA" --arg name "VRCXF $RELEASE_TAG" --argjson links "$links" '{tag_name: $tag, name: $name, ref: $ref, assets: {links: $links}}' > release.json
+    - |
+      curl --fail-with-body -H "JOB-TOKEN: $CI_JOB_TOKEN" -H "Content-Type: application/json" -d @release.json "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases"
+
+release-macos:
+  stage: release-extra
+  tags: [saas-macos-medium-m1]
+  image: macos-15-xcode-16
+  needs: [release-prepare, release-publish]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+  script:
+    - brew install node pnpm
+    - curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --install-dir "$HOME/.dotnet"
+    - export PATH="$HOME/.dotnet:$PATH" DOTNET_ROOT="$HOME/.dotnet"
+    - echo "$RELEASE_TAG" > Version
+    - pnpm i --frozen-lockfile --prefer-offline
+    - dotnet build Dotnet/VRCX-Electron.csproj -c Release -p:Platform=ARM64
+    - pnpm prod
+    - pnpm build-electron-arm64
+    - mv build/VRCX_*_arm64.dmg VRCXF_arm64.dmg
+    - u="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/release/$RELEASE_TAG/VRCXF_arm64.dmg"
+    - |
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file VRCXF_arm64.dmg "$u"
+    - |
+      curl --fail-with-body -H "JOB-TOKEN: $CI_JOB_TOKEN" --data-urlencode "name=VRCXF_arm64.dmg" --data-urlencode "url=$u" --data "link_type=package" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases/$RELEASE_TAG/assets/links"
+
+pages:
+  stage: deploy
+  image: node:20
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "docs"
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "docs"
+  script:
+    - npm ci
+    - npm run build
+    - rm -rf public && mv build public
+  artifacts:
+    paths:
+      - public
+
+create-release-commit:
+  stage: prepare
+  image: alpine:3.20
+  resource_group: create-release-commit
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_TASK == "release-commit"
+  script:
+    - apk add --no-cache git tzdata
+    - git config user.name "$GITLAB_USER_NAME"
+    - git config user.email "$GITLAB_USER_EMAIL"
+    - git remote set-url origin "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git fetch origin main "$RELEASE_SOURCE_BRANCH"
+    - git checkout -B main origin/main
+    - git merge --no-ff -m "$(TZ=Asia/Tokyo date '+%Y.%m.%d')" "origin/$RELEASE_SOURCE_BRANCH"
+    - git push origin main
+
+approve:
+  stage: prepare
+  image: alpine:3.20
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web") && $CI_TASK == "approve"
+  script:
+    - apk add --no-cache curl jq
+    - |
+      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+      curl -sf -H "PRIVATE-TOKEN: $GITLAB_API_TOKEN" "$api/merge_requests?state=opened&labels=approved&per_page=100" | jq -r '.[].iid' | while read -r iid; do
+        curl -sf -X POST -H "PRIVATE-TOKEN: $GITLAB_API_TOKEN" "$api/merge_requests/$iid/approve" > /dev/null && echo "Approved !$iid"
+        curl -sf -X PUT -H "PRIVATE-TOKEN: $GITLAB_API_TOKEN" --data-urlencode "remove_labels=approved" "$api/merge_requests/$iid" > /dev/null
+      done
+
+stale:
+  stage: prepare
+  image: alpine:3.20
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web") && $CI_TASK == "stale"
+  variables:
+    STALE_MESSAGE: |
+      Hi there! 👋
+
+      This issue has been waiting for more information for over 90 days.
+
+      To help us move forward, please check the following:
+
+      **If this is a bug report:**
+      - Has the issue been resolved in a newer version?
+      - Make sure all relevant logs are attached (these are required).
+
+      **If this is a feature request:**
+      - Ensure all necessary details have been provided
+      - Double-check if there are any unanswered questions in the discussion
+
+      If we don’t receive an update within 30 days, this issue will be closed automatically.
+      Thanks for your help and understanding! 🙏
+    CLOSE_MESSAGE: |
+      Hi there 👋
+
+      We’re closing this issue due to missing information.
+
+      If you’d like us to take another look, feel free to reopen it after:
+      - Providing the requested details (logs, feature clarification, etc.)
+      - Answering any open questions from the team
+
+      Thanks again for your contribution! 🙏
+  script:
+    - apk add --no-cache curl jq coreutils
+    - |
+      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+      h="PRIVATE-TOKEN: $GITLAB_API_TOKEN"
+      stale_before=$(date -u -d '90 days ago' +%Y-%m-%dT%H:%M:%SZ)
+      close_before=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
+      curl -sf -H "$h" "$api/issues?state=opened&labels=needs%20more%20information&not[labels]=stale,nostale&updated_before=$stale_before&per_page=100" | jq -r '.[].iid' | while read -r iid; do
+        curl -sf -X POST -H "$h" --data-urlencode "body=$STALE_MESSAGE" "$api/issues/$iid/notes" > /dev/null
+        curl -sf -X PUT -H "$h" --data-urlencode "add_labels=stale" "$api/issues/$iid" > /dev/null
+        echo "Marked stale #$iid"
+      done
+      curl -sf -H "$h" "$api/issues?state=opened&labels=needs%20more%20information,stale&not[labels]=nostale&updated_before=$close_before&per_page=100" | jq -r '.[].iid' | while read -r iid; do
+        curl -sf -X POST -H "$h" --data-urlencode "body=$CLOSE_MESSAGE" "$api/issues/$iid/notes" > /dev/null
+        curl -sf -X PUT -H "$h" --data-urlencode "state_event=close" "$api/issues/$iid" > /dev/null
+        echo "Closed #$iid"
+      done
